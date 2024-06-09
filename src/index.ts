@@ -3,13 +3,31 @@ import { drizzle } from "drizzle-orm/neon-serverless";
 import { Pool } from "@neondatabase/serverless";
 import { transactionTable } from "./schema/transaction";
 import { sum, between, count, asc } from "drizzle-orm";
-// import { date } from "drizzle-orm/mysql-core";
+import { logger } from "hono/logger";
+import { bearerAuth } from "hono/bearer-auth";
 
 export type Env = {
   DATABASE_URL: string;
+  API_KEY: string;
 };
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use(logger());
+app.use(async (c, next) => {
+  const start = Date.now();
+  await next();
+  const end = Date.now();
+  c.res.headers.set("X-Response-Time", `${end - start}`);
+});
+
+app.use("/transaction/*", async (c, next) => {
+  const apiKey = c.req.header("X-API-KEY");
+  if (apiKey !== c.env.API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
 
 app.get("/", (c) => {
   return c.text("Hello Hono!");
