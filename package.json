@@ -1,0 +1,17 @@
+{
+  "scripts": {
+    "dev": "wrangler dev src/index.ts",
+    "deploy": "wrangler deploy --minify src/index.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.3",
+    "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.31.2",
+    "hono": "^4.4.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240529.0",
+    "drizzle-kit": "^0.22.6",
+    "wrangler": "^3.57.2"
+  }
+}
