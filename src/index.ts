@@ -4,7 +4,7 @@ import { Pool } from "@neondatabase/serverless";
 import { transactionTable } from "./schema/transaction";
 import { sum, between, count, asc } from "drizzle-orm";
 import { logger } from "hono/logger";
-import { bearerAuth } from "hono/bearer-auth";
+import { z } from "zod";
 
 export type Env = {
   DATABASE_URL: string;
@@ -37,13 +37,13 @@ app.post("/transaction/add", async (c) => {
   const body = await c.req.json();
   const client = new Pool({ connectionString: c.env.DATABASE_URL });
   const db = drizzle(client);
-  console.log(c.env.DATABASE_URL);
+  const nonnegative = z.number().nonnegative();
 
   await db.insert(transactionTable).values({
-    amount: body.amount,
-    type: body.type,
-    kind: body.kind,
-    currency: body.currency,
+    amount: nonnegative.parse(body.amount).toString(),
+    type: nonnegative.parse(body.type),
+    kind: nonnegative.parse(body.kind),
+    currency: nonnegative.parse(body.currency),
   });
   return c.json({
     ok: true,
@@ -51,8 +51,11 @@ app.post("/transaction/add", async (c) => {
 });
 
 app.get("/transaction/list", async (c) => {
-  const startTimeLocal = c.req.query("start_at") + " 00:00:00";
-  const endTimeLocal = c.req.query("end_at") + " 23:59:59";
+  const date = z.string().date();
+  const start_at = date.parse(c.req.query("start_at"));
+  const end_at = date.parse(c.req.query("end_at"));
+  const startTimeLocal = start_at + " 00:00:00";
+  const endTimeLocal = end_at + " 23:59:59";
 
   const utcStartAt = new Date(
     new Date(startTimeLocal).getTime() - 8 * 60 * 60 * 1000
@@ -92,8 +95,11 @@ app.get("/transaction/list", async (c) => {
 });
 
 app.get("/transaction/overview", async (c) => {
-  const startTimeLocal = c.req.query("start_at") + " 00:00:00";
-  const endTimeLocal = c.req.query("end_at") + " 23:59:59";
+  const date = z.string().date();
+  const start_at = date.parse(c.req.query("start_at"));
+  const end_at = date.parse(c.req.query("end_at"));
+  const startTimeLocal = start_at + " 00:00:00";
+  const endTimeLocal = end_at + " 23:59:59";
 
   const utcStartAt = new Date(startTimeLocal);
   const utcEndAt = new Date(endTimeLocal);
