@@ -5,11 +5,19 @@ import { transactionTable } from "./schema/transaction";
 import { sum, between, count, asc } from "drizzle-orm";
 import { logger } from "hono/logger";
 import { z } from "zod";
+import { Redis } from "@upstash/redis/cloudflare";
 
 export type Env = {
   DATABASE_URL: string;
   API_KEY: string;
+  UPSTASH_REDIS_REST_URL: string;
+  UPSTASH_REDIS_REST_TOKEN: string;
 };
+
+interface RedisEnv {
+  UPSTASH_REDIS_REST_URL: string;
+  UPSTASH_REDIS_REST_TOKEN: string;
+}
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -54,6 +62,7 @@ app.get("/transaction/list", async (c) => {
   const date = z.string().date();
   const start_at = date.parse(c.req.query("start_at"));
   const end_at = date.parse(c.req.query("end_at"));
+
   const startTimeLocal = start_at + " 00:00:00";
   const endTimeLocal = end_at + " 23:59:59";
 
@@ -66,6 +75,20 @@ app.get("/transaction/list", async (c) => {
   const client = new Pool({ connectionString: c.env.DATABASE_URL });
   const db = drizzle(client);
 
+  const redisEnv: RedisEnv = {
+    UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
+  }
+  const key = "list-" + start_at + end_at;
+  const redis = Redis.fromEnv(redisEnv);
+  const redisResult = await redis.get(key);
+
+  if (redisResult) {
+    return c.json({
+      ok: true,
+      data: redisResult,
+    });
+  }
   const result = await db
     .select({
       amount: transactionTable.amount,
@@ -88,6 +111,7 @@ app.get("/transaction/list", async (c) => {
     return { ...item, date: formattedDate };
   });
 
+  await redis.set(key, JSON.stringify(dataWithLocalTime));
   return c.json({
     ok: true,
     data: dataWithLocalTime,
@@ -104,6 +128,21 @@ app.get("/transaction/overview", async (c) => {
   const utcStartAt = new Date(startTimeLocal);
   const utcEndAt = new Date(endTimeLocal);
 
+  const redisEnv: RedisEnv = {
+    UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
+  }
+
+  const key = "overview-" + start_at + end_at;
+  const redis = Redis.fromEnv(redisEnv);
+  const redisResult = await redis.get(key);
+  if (redisResult) {
+    return c.json({
+      ok: true,
+      data: redisResult,
+    });
+  }
+
   const client = new Pool({ connectionString: c.env.DATABASE_URL });
   const db = drizzle(client);
   const result = await db
@@ -115,6 +154,8 @@ app.get("/transaction/overview", async (c) => {
     .from(transactionTable)
     .where(between(transactionTable.createdAt, utcStartAt, utcEndAt))
     .groupBy(transactionTable.type); // 在这里移除 orderBy(asc(transactionTable.createdAt))
+
+  await redis.set(key, JSON.stringify(result));
 
   return c.json({
     ok: true,

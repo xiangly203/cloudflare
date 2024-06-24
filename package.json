@@ -5,6 +5,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.9.3",
+    "@upstash/redis": "^1.31.6",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.31.2",
     "hono": "^4.4.4",
