@@ -79,7 +79,7 @@ app.get("/transaction/list", async (c) => {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
   }
-  const key = "list-" + start_at + end_at;
+  const key = "transaction:list-" + start_at + "-" + end_at;
   const redis = Redis.fromEnv(redisEnv);
   const redisResult = await redis.get(key);
 
@@ -133,7 +133,7 @@ app.get("/transaction/overview", async (c) => {
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
   }
 
-  const key = "overview-" + start_at + end_at;
+  const key = "transaction:overview-" + start_at + "-" + end_at;
   const redis = Redis.fromEnv(redisEnv);
   const redisResult = await redis.get(key);
   if (redisResult) {

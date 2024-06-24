@@ -30,5 +30,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 *.toml
+.idea
 # misc
 .DS_Store
