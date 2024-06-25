@@ -111,7 +111,7 @@ app.get("/transaction/list", async (c) => {
     return { ...item, date: formattedDate };
   });
 
-  await redis.set(key, JSON.stringify(dataWithLocalTime));
+  await redis.set(key, JSON.stringify(dataWithLocalTime), {ex:3600});
   return c.json({
     ok: true,
     data: dataWithLocalTime,
@@ -139,6 +139,8 @@ app.get("/transaction/overview", async (c) => {
   if (redisResult) {
     return c.json({
       ok: true,
+      start_at: startTimeLocal,
+      end_at: endTimeLocal,
       data: redisResult,
     });
   }
@@ -155,7 +157,7 @@ app.get("/transaction/overview", async (c) => {
     .where(between(transactionTable.createdAt, utcStartAt, utcEndAt))
     .groupBy(transactionTable.type); // 在这里移除 orderBy(asc(transactionTable.createdAt))
 
-  await redis.set(key, JSON.stringify(result));
+  await redis.set(key, JSON.stringify(result), {ex:3600});
 
   return c.json({
     ok: true,
