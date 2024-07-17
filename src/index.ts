@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { Pool } from "@neondatabase/serverless";
 import { transactionTable } from "./schema/transaction";
-import { sum, between, count, asc } from "drizzle-orm";
+import { sum, between, count, asc, eq } from "drizzle-orm";
 import { logger } from "hono/logger";
 import { z } from "zod";
 import { Redis } from "@upstash/redis/cloudflare";
@@ -58,6 +58,19 @@ app.post("/transaction/add", async (c) => {
   });
 });
 
+app.post("/transaction/delete", async (c) => {
+  const body = await c.req.json();
+  const client = new Pool({ connectionString: c.env.DATABASE_URL });
+  const db = drizzle(client);
+  const nonnegative = z.number().nonnegative();
+  
+  await db.delete(transactionTable).where(eq(transactionTable.id, nonnegative.parse(body.id)));
+
+  return c.json({
+    ok: true,
+  });
+});
+
 app.get("/transaction/list", async (c) => {
   const date = z.string().date();
   const start_at = date.parse(c.req.query("start_at"));
@@ -91,6 +104,7 @@ app.get("/transaction/list", async (c) => {
   }
   const result = await db
     .select({
+      id: transactionTable.id,
       amount: transactionTable.amount,
       type: transactionTable.type,
       date: transactionTable.createdAt,
