@@ -53,6 +53,13 @@ app.post("/transaction/add", async (c) => {
     kind: nonnegative.parse(body.kind),
     currency: nonnegative.parse(body.currency),
   });
+  const redisEnv: RedisEnv = {
+    UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
+  }
+  const redis = Redis.fromEnv(redisEnv);
+  await redis.keys('transaction:list-*').then(keys => keys.forEach(key => redis.del(key)));
+    await redis.keys('transaction:overview-*').then(keys => keys.forEach(key => redis.del(key)));
   return c.json({
     ok: true,
   });
@@ -65,7 +72,13 @@ app.post("/transaction/delete", async (c) => {
   const nonnegative = z.number().nonnegative();
   
   await db.delete(transactionTable).where(eq(transactionTable.id, nonnegative.parse(body.id)));
-
+  const redisEnv: RedisEnv = {
+    UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
+  }
+  const redis = Redis.fromEnv(redisEnv);
+  await redis.keys('transaction:list-*').then(keys => keys.forEach(key => redis.del(key)));
+  await redis.keys('transaction:overview-*').then(keys => keys.forEach(key => redis.del(key)));
   return c.json({
     ok: true,
   });
