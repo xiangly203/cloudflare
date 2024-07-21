@@ -41,11 +41,33 @@ app.get("/", (c) => {
   return c.text("Hello Hono!");
 });
 
+const getDbInstance = (connectionString: string) => {
+  const client = new Pool({ connectionString });
+  return drizzle(client);
+};
+
+const getRedisInstance = (env: RedisEnv): Redis => {
+  return Redis.fromEnv(env);
+};
+
+const clearCache = async (redis: Redis) => {
+  const keys = await redis.keys('transaction:*');
+  if (keys.length > 0) {
+    await redis.del(...keys);
+  }
+};
+
+const toLocalTime = (utcDateStr: any): string => {
+  const utcDate = new Date(utcDateStr);
+  const localDate = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000);
+  return localDate.toISOString().replace("T", " ").slice(0, 19);
+};
+
 app.post("/transaction/add", async (c) => {
   const body = await c.req.json();
-  const client = new Pool({ connectionString: c.env.DATABASE_URL });
-  const db = drizzle(client);
   const nonnegative = z.number().nonnegative();
+
+  const db = getDbInstance(c.env.DATABASE_URL);
 
   await db.insert(transactionTable).values({
     amount: nonnegative.parse(body.amount).toString(),
@@ -53,35 +75,33 @@ app.post("/transaction/add", async (c) => {
     kind: nonnegative.parse(body.kind),
     currency: nonnegative.parse(body.currency),
   });
+
   const redisEnv: RedisEnv = {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
-  }
-  const redis = Redis.fromEnv(redisEnv);
-  await redis.keys('transaction:list-*').then(keys => keys.forEach(key => redis.del(key)));
-    await redis.keys('transaction:overview-*').then(keys => keys.forEach(key => redis.del(key)));
-  return c.json({
-    ok: true,
-  });
+  };
+  const redis = getRedisInstance(redisEnv);
+  await clearCache(redis);
+
+  return c.json({ ok: true });
 });
 
 app.post("/transaction/delete", async (c) => {
   const body = await c.req.json();
-  const client = new Pool({ connectionString: c.env.DATABASE_URL });
-  const db = drizzle(client);
   const nonnegative = z.number().nonnegative();
   
+  const db = getDbInstance(c.env.DATABASE_URL);
+
   await db.delete(transactionTable).where(eq(transactionTable.id, nonnegative.parse(body.id)));
+  
   const redisEnv: RedisEnv = {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
-  }
-  const redis = Redis.fromEnv(redisEnv);
-  await redis.keys('transaction:list-*').then(keys => keys.forEach(key => redis.del(key)));
-  await redis.keys('transaction:overview-*').then(keys => keys.forEach(key => redis.del(key)));
-  return c.json({
-    ok: true,
-  });
+  };
+  const redis = getRedisInstance(redisEnv);
+  await clearCache(redis);
+
+  return c.json({ ok: true });
 });
 
 app.get("/transaction/list", async (c) => {
@@ -92,21 +112,15 @@ app.get("/transaction/list", async (c) => {
   const startTimeLocal = start_at + " 00:00:00";
   const endTimeLocal = end_at + " 23:59:59";
 
-  const utcStartAt = new Date(
-    new Date(startTimeLocal).getTime() - 8 * 60 * 60 * 1000
-  );
-  const utcEndAt = new Date(
-    new Date(endTimeLocal).getTime() - 8 * 60 * 60 * 1000
-  );
-  const client = new Pool({ connectionString: c.env.DATABASE_URL });
-  const db = drizzle(client);
+  const utcStartAt = new Date(startTimeLocal + "Z");
+  const utcEndAt = new Date(endTimeLocal + "Z");
 
   const redisEnv: RedisEnv = {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
-  }
+  };
   const key = "transaction:list-" + start_at + "-" + end_at;
-  const redis = Redis.fromEnv(redisEnv);
+  const redis = getRedisInstance(redisEnv);
   const redisResult = await redis.get(key);
 
   if (redisResult) {
@@ -115,6 +129,9 @@ app.get("/transaction/list", async (c) => {
       data: redisResult,
     });
   }
+
+  const db = getDbInstance(c.env.DATABASE_URL);
+
   const result = await db
     .select({
       id: transactionTable.id,
@@ -127,18 +144,11 @@ app.get("/transaction/list", async (c) => {
     .orderBy(asc(transactionTable.createdAt));
 
   const dataWithLocalTime = result.map((item) => {
-    const utcDate = new Date(item.date);
-    // 加8小时转换为UTC+8
-    const localDate = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000);
-    // 转换时间为标准格式
-    const formattedDate = localDate
-      .toISOString()
-      .replace("T", " ")
-      .slice(0, 19);
-    return { ...item, date: formattedDate };
+    return { ...item, date: toLocalTime(item.date) };
   });
 
-  await redis.set(key, JSON.stringify(dataWithLocalTime), {ex:3600});
+  await redis.set(key, JSON.stringify(dataWithLocalTime), { ex: 3600 });
+  
   return c.json({
     ok: true,
     data: dataWithLocalTime,
@@ -152,16 +162,16 @@ app.get("/transaction/overview", async (c) => {
   const startTimeLocal = start_at + " 00:00:00";
   const endTimeLocal = end_at + " 23:59:59";
 
-  const utcStartAt = new Date(startTimeLocal);
-  const utcEndAt = new Date(endTimeLocal);
+  const utcStartAt = new Date(startTimeLocal + "Z");
+  const utcEndAt = new Date(endTimeLocal + "Z");
 
   const redisEnv: RedisEnv = {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
-  }
+  };
 
   const key = "transaction:overview-" + start_at + "-" + end_at;
-  const redis = Redis.fromEnv(redisEnv);
+  const redis = getRedisInstance(redisEnv);
   const redisResult = await redis.get(key);
   if (redisResult) {
     return c.json({
@@ -172,8 +182,8 @@ app.get("/transaction/overview", async (c) => {
     });
   }
 
-  const client = new Pool({ connectionString: c.env.DATABASE_URL });
-  const db = drizzle(client);
+  const db = getDbInstance(c.env.DATABASE_URL);
+
   const result = await db
     .select({
       type: transactionTable.type,
@@ -182,15 +192,15 @@ app.get("/transaction/overview", async (c) => {
     })
     .from(transactionTable)
     .where(between(transactionTable.createdAt, utcStartAt, utcEndAt))
-    .groupBy(transactionTable.type); // 在这里移除 orderBy(asc(transactionTable.createdAt))
+    .groupBy(transactionTable.type);
 
-  await redis.set(key, JSON.stringify(result), {ex:3600});
+  await redis.set(key, JSON.stringify(result), { ex: 3600 });
 
   return c.json({
     ok: true,
     start_at: startTimeLocal,
     end_at: endTimeLocal,
-    date: result,
+    data: result,
   });
 });
 
