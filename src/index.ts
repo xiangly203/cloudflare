@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { Pool } from "@neondatabase/serverless";
 import { transactionTable } from "./schema/transaction";
-import { sum, between, count, asc, eq } from "drizzle-orm";
+import { sum, between, count, asc, eq, isNull, and } from "drizzle-orm";
 import { logger } from "hono/logger";
 import { z } from "zod";
 import { Redis } from "@upstash/redis/cloudflare";
@@ -100,7 +100,7 @@ app.post("/transaction/update", async (c) => {
 
   // 检查是否是删除操作
   if (body.is_delete) {
-    await db.delete(transactionTable).where(eq(transactionTable.id, nonnegative.parse(body.id)));
+    await db.update(transactionTable).set({ deletedAt: new Date() }).where(eq(transactionTable.id, nonnegative.parse(body.id)));
   } else {
     // 更新操作
     const positive = z.number().positive();
@@ -151,7 +151,7 @@ app.get("/transaction/list", async (c) => {
       date: transactionTable.createdAt,
     })
     .from(transactionTable)
-    .where(between(transactionTable.createdAt, utcStartAt, utcEndAt))
+    .where(and(between(transactionTable.createdAt, utcStartAt, utcEndAt),isNull(transactionTable.deletedAt)))
     .orderBy(asc(transactionTable.createdAt));
 
   const dataWithLocalTime = result.map((item) => {
@@ -202,7 +202,7 @@ app.get("/transaction/overview", async (c) => {
       count: count(transactionTable.amount),
     })
     .from(transactionTable)
-    .where(between(transactionTable.createdAt, utcStartAt, utcEndAt))
+    .where(and(between(transactionTable.createdAt, utcStartAt, utcEndAt),isNull(transactionTable.deletedAt)))
     .groupBy(transactionTable.type);
 
   await redis.set(key, JSON.stringify(result), { ex: 3600 });

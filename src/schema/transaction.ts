@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   integer,
   pgTable,
@@ -18,6 +19,8 @@ export const transactionTable = pgTable("transactions", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .$onUpdate(() => new Date()),
+  deletedAt: timestamp("deleted_at", { withTimezone: true })
+  .default(sql`null`),
 });
 
 export type InsertTransaction = typeof transactionTable.$inferInsert;
