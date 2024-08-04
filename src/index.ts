@@ -86,19 +86,30 @@ app.post("/transaction/add", async (c) => {
   return c.json({ ok: true });
 });
 
-app.post("/transaction/delete", async (c) => {
+app.post("/transaction/update", async (c) => {
   const body = await c.req.json();
   const nonnegative = z.number().nonnegative();
-  
   const db = getDbInstance(c.env.DATABASE_URL);
 
-  await db.delete(transactionTable).where(eq(transactionTable.id, nonnegative.parse(body.id)));
-  
-  const redisEnv: RedisEnv = {
+  // 获取 Redis 环境变量
+  const redisEnv = {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
   };
   const redis = getRedisInstance(redisEnv);
+
+  // 检查是否是删除操作
+  if (body.is_delete) {
+    await db.delete(transactionTable).where(eq(transactionTable.id, nonnegative.parse(body.id)));
+  } else {
+    // 更新操作
+    const positive = z.number().positive();
+    await db.update(transactionTable)
+      .set({ amount: positive.parse(body.amount).toString() })
+      .where(eq(transactionTable.id, nonnegative.parse(body.id)));
+  }
+
+  // 清除缓存
   await clearCache(redis);
 
   return c.json({ ok: true });
