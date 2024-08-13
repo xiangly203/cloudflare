@@ -66,11 +66,13 @@ const toLocalTime = (utcDateStr: any): string => {
 app.post("/transaction/add", async (c) => {
   const body = await c.req.json();
   const nonnegative = z.number().nonnegative();
+  const string = z.string();
 
   const db = getDbInstance(c.env.DATABASE_URL);
 
   await db.insert(transactionTable).values({
     amount: nonnegative.parse(body.amount).toString(),
+    title: string.parse(body.title),
     type: nonnegative.parse(body.type),
     kind: nonnegative.parse(body.kind),
     currency: nonnegative.parse(body.currency),
@@ -146,6 +148,7 @@ app.get("/transaction/list", async (c) => {
   const result = await db
     .select({
       id: transactionTable.id,
+      title: transactionTable.title,
       amount: transactionTable.amount,
       type: transactionTable.type,
       date: transactionTable.createdAt,

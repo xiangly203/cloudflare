@@ -5,14 +5,18 @@ import {
   serial,
   numeric,
   timestamp,
+  varchar,
+  text,
 } from "drizzle-orm/pg-core";
 
 export const transactionTable = pgTable("transactions", {
   id: serial("id").primaryKey(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  title:varchar("title", { length: 32 }).notNull(),
   type: integer("type").notNull(),
   kind: integer("kind").notNull(),
   currency: integer("currency").notNull(),
+  remark:text("remark"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
