@@ -6,6 +6,10 @@ import { sum, between, count, asc, eq, isNull, and } from "drizzle-orm";
 import { logger } from "hono/logger";
 import { z } from "zod";
 import { Redis } from "@upstash/redis/cloudflare";
+import dayjs from "dayjs";
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
 
 export type Env = {
   DATABASE_URL: string;
@@ -20,6 +24,9 @@ interface RedisEnv {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+dayjs.extend(utc)
+dayjs.extend(timezone)
 
 app.use(logger());
 app.use(async (c, next) => {
@@ -55,12 +62,6 @@ const clearCache = async (redis: Redis) => {
   if (keys.length > 0) {
     await redis.del(...keys);
   }
-};
-
-const toLocalTime = (utcDateStr: any): string => {
-  const utcDate = new Date(utcDateStr);
-  const localDate = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000);
-  return localDate.toISOString().replace("T", " ").slice(0, 19);
 };
 
 app.post("/transaction/add", async (c) => {
@@ -118,24 +119,24 @@ app.post("/transaction/update", async (c) => {
 });
 
 app.get("/transaction/list", async (c) => {
-  const date = z.string().date();
-  const start_at = date.parse(c.req.query("start_at"));
-  const end_at = date.parse(c.req.query("end_at"));
+  // 验证和解析日期参数
+  const dateSchema = z.string().date();
+  const start_at = dateSchema.parse(c.req.query("start_at"));
+  const end_at = dateSchema.parse(c.req.query("end_at"));
 
-  const startTimeLocal = start_at + " 00:00:00";
-  const endTimeLocal = end_at + " 23:59:59";
+  const startTimeLocal = dayjs.tz(start_at, 'Asia/Shanghai').startOf('day').utc().toDate();
+  const endTimeLocal = dayjs.tz(end_at, 'Asia/Shanghai').endOf('day').utc().toDate();
 
-  const utcStartAt = new Date(startTimeLocal + "Z");
-  const utcEndAt = new Date(endTimeLocal + "Z");
-
+  // 设置 Redis 环境变量
   const redisEnv: RedisEnv = {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: c.env.UPSTASH_REDIS_REST_TOKEN,
   };
-  const key = "transaction:list-" + start_at + "-" + end_at;
+  const key = `transaction:list-${start_at}-${end_at}`;
   const redis = getRedisInstance(redisEnv);
   const redisResult = await redis.get(key);
 
+  // 如果缓存命中，直接返回结果
   if (redisResult) {
     return c.json({
       ok: true,
@@ -145,39 +146,43 @@ app.get("/transaction/list", async (c) => {
 
   const db = getDbInstance(c.env.DATABASE_URL);
 
+  // 查询数据库，使用 UTC 时间范围
   const result = await db
-    .select({
-      id: transactionTable.id,
-      title: transactionTable.title,
-      amount: transactionTable.amount,
-      type: transactionTable.type,
-      date: transactionTable.createdAt,
-    })
-    .from(transactionTable)
-    .where(and(between(transactionTable.createdAt, utcStartAt, utcEndAt),isNull(transactionTable.deletedAt)))
-    .orderBy(asc(transactionTable.createdAt));
+      .select({
+        id: transactionTable.id,
+        title: transactionTable.title,
+        amount: transactionTable.amount,
+        type: transactionTable.type,
+        date: transactionTable.createdAt,
+      })
+      .from(transactionTable)
+      .where(and(between(transactionTable.createdAt, startTimeLocal, endTimeLocal),
+          isNull(transactionTable.deletedAt)
+      ))
+      .orderBy(asc(transactionTable.createdAt));
 
-  const dataWithLocalTime = result.map((item) => {
-    return { ...item, date: toLocalTime(item.date) };
-  });
+  // 将结果中的日期转换为本地时间
+  const dataWithLocalTime = result.map((item) => ({
+    ...item,
+    date: dayjs.utc(item.date).tz('Asia/Shanghai').format('YYYY-MM-DD HH:mm:ss'),
+  }));
 
+  // 缓存查询结果
   await redis.set(key, JSON.stringify(dataWithLocalTime), { ex: 3600 });
-  
+
   return c.json({
     ok: true,
     data: dataWithLocalTime,
   });
 });
 
+
 app.get("/transaction/overview", async (c) => {
   const date = z.string().date();
   const start_at = date.parse(c.req.query("start_at"));
   const end_at = date.parse(c.req.query("end_at"));
-  const startTimeLocal = start_at + " 00:00:00";
-  const endTimeLocal = end_at + " 23:59:59";
-
-  const utcStartAt = new Date(startTimeLocal + "Z");
-  const utcEndAt = new Date(endTimeLocal + "Z");
+  const startTimeLocal = dayjs.tz(start_at, 'Asia/Shanghai').startOf('day').utc();
+  const endTimeLocal = dayjs.tz(end_at, 'Asia/Shanghai').endOf('day').utc();
 
   const redisEnv: RedisEnv = {
     UPSTASH_REDIS_REST_URL: c.env.UPSTASH_REDIS_REST_URL,
@@ -190,8 +195,8 @@ app.get("/transaction/overview", async (c) => {
   if (redisResult) {
     return c.json({
       ok: true,
-      start_at: startTimeLocal,
-      end_at: endTimeLocal,
+      start_at: startTimeLocal.format('YYYY-MM-DD HH:mm:ss'),
+      end_at: endTimeLocal.format('YYYY-MM-DD HH:mm:ss'),
       data: redisResult,
     });
   }
@@ -205,7 +210,7 @@ app.get("/transaction/overview", async (c) => {
       count: count(transactionTable.amount),
     })
     .from(transactionTable)
-    .where(and(between(transactionTable.createdAt, utcStartAt, utcEndAt),isNull(transactionTable.deletedAt)))
+    .where(and(between(transactionTable.createdAt, startTimeLocal.toDate(), endTimeLocal.toDate()),isNull(transactionTable.deletedAt)))
     .groupBy(transactionTable.type);
 
   await redis.set(key, JSON.stringify(result), { ex: 3600 });
