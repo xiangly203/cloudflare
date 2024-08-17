@@ -180,9 +180,9 @@ app.get("/transaction/list", async (c) => {
 
 
 app.get("/transaction/overview", async (c) => {
-  const date = z.string().date();
-  const start_at = date.parse(c.req.query("start_at"));
-  const end_at = date.parse(c.req.query("end_at"));
+  const dateSchema = z.string().date();
+  const start_at = dateSchema.parse(c.req.query("start_at"));
+  const end_at = dateSchema.parse(c.req.query("end_at"));
   const startTimeLocal = dayjs.tz(start_at, 'Asia/Shanghai').startOf('day').utc();
   const endTimeLocal = dayjs.tz(end_at, 'Asia/Shanghai').endOf('day').utc();
 
@@ -197,8 +197,8 @@ app.get("/transaction/overview", async (c) => {
   if (redisResult) {
     return c.json({
       ok: true,
-      start_at: startTimeLocal.format('YYYY-MM-DD HH:mm:ss'),
-      end_at: endTimeLocal.format('YYYY-MM-DD HH:mm:ss'),
+      start_at: dayjs.tz(start_at, 'Asia/Shanghai').startOf('day').format('YYYY-MM-DD HH:mm:ss'),
+      end_at: dayjs.tz(start_at, 'Asia/Shanghai').endOf('day').format('YYYY-MM-DD HH:mm:ss'),
       data: redisResult,
     });
   }
@@ -219,8 +219,8 @@ app.get("/transaction/overview", async (c) => {
 
   return c.json({
     ok: true,
-    start_at: startTimeLocal,
-    end_at: endTimeLocal,
+    start_at: dayjs.tz(start_at, 'Asia/Shanghai').startOf('day').format('YYYY-MM-DD HH:mm:ss'),
+    end_at: dayjs.tz(start_at, 'Asia/Shanghai').endOf('day').format('YYYY-MM-DD HH:mm:ss'),
     data: result,
   });
 });
