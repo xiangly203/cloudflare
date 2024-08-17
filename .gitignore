@@ -33,3 +33,5 @@ lerna-debug.log*
 .idea
 # misc
 .DS_Store
+.vscode
+wrangler.toml
