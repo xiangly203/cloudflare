@@ -168,7 +168,9 @@ app.get("/transaction/list", async (c) => {
   }));
 
   // 缓存查询结果
-  await redis.set(key, JSON.stringify(dataWithLocalTime), { ex: 3600 });
+  if (result.length) {
+    await redis.set(key, JSON.stringify(dataWithLocalTime), {ex: 3600});
+  }
 
   return c.json({
     ok: true,
